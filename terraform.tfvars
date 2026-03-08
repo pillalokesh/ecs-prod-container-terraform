@@ -4,7 +4,7 @@ environment = "production"
 # VPC and Subnets (Update with your actual IDs)
 vpc_id             = "vpc-0911044b43b937f2e"
 private_subnet_ids = ["subnet-0f47518c6c7860603", "subnet-0c7d8562f98c12bf7"]
-public_subnet_ids  = ["subnet-0a6e328d21a951f62", "subnet-0ae046847461680cb"]
+public_subnet_ids  = ["subnet-0a6e328d21a951f62", "subnet-0ef8288539cc6b26a"]
 
 # ECS Configuration
 cluster_name   = "prod-ecs-cluster"
