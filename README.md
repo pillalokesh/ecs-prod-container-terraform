@@ -34,13 +34,32 @@ cd ecs-prod-container-terraform
 
 ### 2. Configure Variables
 
-Edit `terraform.tfvars` and update with your actual values:
+Edit `terraform.tfvars` and update with your actual values. By default the
+module will create a new VPC in **ap-south-1** using the `terraform-aws-
+modules/vpc/aws` module; you only need to provide the CIDR/AZs or you can
+supply an existing VPC and subnet IDs instead.
+
+Example for creating a new VPC (two AZs is sufficient for HA):
 
 ```hcl
-vpc_id             = "vpc-xxxxxxxxxxxxxxxxx"  # Your VPC ID
-private_subnet_ids = ["subnet-xxx", "subnet-yyy"]  # Your private subnets
-public_subnet_ids  = ["subnet-zzz", "subnet-aaa"]  # Your public subnets
+vpc_name        = "prod-ecs-vpc"
+vpc_cidr        = "10.0.0.0/16"
+azs             = ["ap-south-1a", "ap-south-1b"]
+private_subnets = ["10.0.1.0/24", "10.0.2.0/24"]
+public_subnets  = ["10.0.101.0/24", "10.0.102.0/24"]
+``` 
+
+Or, to point at an existing network:
+
+```hcl
+# vpc_id             = "vpc-xxxxxxxxxxxxxxxxx"
+# private_subnet_ids = ["subnet-xxx", "subnet-yyy"]
+# public_subnet_ids  = ["subnet-zzz", "subnet-aaa"]
 ```
+
+By default the list of names used by the IAM and ECS modules is derived from
+`ssm_parameters` keys; if you prefer to supply a separate list you can set
+`ssm_secret_names` directly in your tfvars.
 
 ### 3. Create SSM Parameters (if not exists)
 
@@ -49,13 +68,34 @@ aws ssm put-parameter \
   --name "/prod/app/db_password" \
   --value "your-secret-value" \
   --type "SecureString" \
-  --region us-east-1
+  --region ap-south-1
 
 aws ssm put-parameter \
   --name "/prod/app/api_key" \
   --value "your-api-key" \
   --type "SecureString" \
-  --region us-east-1
+  --region ap-south-1
+```
+
+### 3.5. Optional Bastion & Secrets
+
+If you need a jump host for maintenance you can enable the built‑in bastion
+instance. Populate the following variables in `terraform.tfvars`:
+
+```hcl
+bastion_ami      = "ami-0abcdef1234567890"  # current Linux AMI
+bastion_key_name = "my-bastion-key"         # or leave blank if using SSM
+my_ip_cidr       = "203.0.113.0/32"        # restrict SSH
+```
+
+Secrets may also be provisioned directly from Terraform via the
+`ssm_parameters` map:
+
+```hcl
+ssm_parameters = {
+  "/prod/app/db_password" = "super-secret-value"
+  "/prod/app/api_key"     = "another-secret"
+}
 ```
 
 ### 4. Deploy Infrastructure
@@ -76,6 +116,37 @@ terraform output alb_dns_name
 curl http://<alb-dns-name>
 ```
 
+### 6. Cleanup (Alternative to Terraform Destroy)
+
+If Terraform destroy is taking too long, you can manually clean up resources using AWS CLI:
+
+```bash
+# Scale down ECS service
+aws ecs update-service --cluster prod-ecs-cluster --service nginx-service --desired-count 0 --region ap-south-1
+
+# Delete ECS service
+aws ecs delete-service --cluster prod-ecs-cluster --service nginx-service --region ap-south-1
+
+# Delete ECS cluster (removes capacity provider and ASG)
+aws ecs delete-cluster --cluster prod-ecs-cluster --region ap-south-1
+
+# Delete ALB
+ALB_ARN=$(aws elbv2 describe-load-balancers --names nginx-service-alb --region ap-south-1 --query 'LoadBalancers[0].LoadBalancerArn' --output text)
+aws elbv2 delete-load-balancer --load-balancer-arn $ALB_ARN --region ap-south-1
+
+# Delete target group
+TG_ARN=$(aws elbv2 describe-target-groups --names nginx-service-tg-ip --region ap-south-1 --query 'TargetGroups[0].TargetGroupArn' --output text)
+aws elbv2 delete-target-group --target-group-arn $TG_ARN --region ap-south-1
+
+# Delete SSM parameters
+aws ssm delete-parameter --name "/prod/app/db_password" --region ap-south-1
+aws ssm delete-parameter --name "/prod/app/api_key" --region ap-south-1
+
+# Delete VPC and subnets (if created by Terraform)
+VPC_ID=$(aws ec2 describe-vpcs --filters "Name=tag:Name,Values=prod-ecs-vpc" --region ap-south-1 --query 'Vpcs[0].VpcId' --output text)
+aws ec2 delete-vpc --vpc-id $VPC_ID --region ap-south-1
+```
+
 ## Architecture Decisions
 
 ### Zero-Downtime Deployments
@@ -84,6 +155,13 @@ curl http://<alb-dns-name>
 - **Max Percent**: 200% (new tasks start before old stop)
 - **Deregistration Delay**: 30s (drain in-flight requests)
 - **Circuit Breaker**: Enabled (auto-rollback on failure)
+
+### Network Mode
+
+- **awsvpc**: Each task gets its own ENI and IP address
+- **Target Group Type**: IP (required for awsvpc with ALB)
+- **Security Groups**: Task-level security (no dynamic port issues)
+- **Load Balancer Integration**: Automatic target registration by IP
 
 ### Secrets Management
 

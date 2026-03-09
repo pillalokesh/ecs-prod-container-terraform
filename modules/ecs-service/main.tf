@@ -5,7 +5,7 @@ resource "aws_cloudwatch_log_group" "ecs" {
 
 resource "aws_ecs_task_definition" "main" {
   family                   = var.service_name
-  network_mode             = "bridge"
+  network_mode             = "awsvpc"
   requires_compatibilities = ["EC2"]
   cpu                      = "256"
   memory                   = "512"
@@ -21,7 +21,6 @@ resource "aws_ecs_task_definition" "main" {
 
     portMappings = [{
       containerPort = var.container_port
-      hostPort      = 0
       protocol      = "tcp"
     }]
 
@@ -48,6 +47,11 @@ resource "aws_ecs_service" "main" {
   cluster         = var.cluster_id
   task_definition = aws_ecs_task_definition.main.arn
   desired_count   = var.desired_count
+
+  network_configuration {
+    subnets         = var.private_subnet_ids
+    security_groups = [var.ecs_tasks_security_group_id]
+  }
 
   deployment_minimum_healthy_percent = 100
   deployment_maximum_percent         = 200

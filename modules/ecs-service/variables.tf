@@ -53,3 +53,11 @@ variable "task_execution_ssm_policy_id" {
 variable "cpu_target_value" {
   type = number
 }
+
+variable "private_subnet_ids" {
+  type = list(string)
+}
+
+variable "ecs_tasks_security_group_id" {
+  type = string
+}
