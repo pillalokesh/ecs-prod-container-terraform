@@ -112,29 +112,29 @@ If Terraform destroy is taking too long, you can manually clean up resources usi
 
 ```bash
 # Scale down ECS service
-aws ecs update-service --cluster prod-ecs-cluster --service nginx-service --desired-count 0 --region ap-south-1
+aws ecs update-service --cluster prod-ecs-cluster --service nginx-service --desired-count 0 --region us-east-1
 
 # Delete ECS service
-aws ecs delete-service --cluster prod-ecs-cluster --service nginx-service --region ap-south-1
+aws ecs delete-service --cluster prod-ecs-cluster --service nginx-service --region us-east-1
 
 # Delete ECS cluster (removes capacity provider and ASG)
-aws ecs delete-cluster --cluster prod-ecs-cluster --region ap-south-1
+aws ecs delete-cluster --cluster prod-ecs-cluster --region us-east-1
 
 # Delete ALB
-ALB_ARN=$(aws elbv2 describe-load-balancers --names nginx-service-alb --region ap-south-1 --query 'LoadBalancers[0].LoadBalancerArn' --output text)
-aws elbv2 delete-load-balancer --load-balancer-arn $ALB_ARN --region ap-south-1
+ALB_ARN=$(aws elbv2 describe-load-balancers --names nginx-service-alb --region us-east-1 --query 'LoadBalancers[0].LoadBalancerArn' --output text)
+aws elbv2 delete-load-balancer --load-balancer-arn $ALB_ARN --region us-east-1
 
 # Delete target group
-TG_ARN=$(aws elbv2 describe-target-groups --names nginx-service-tg-ip --region ap-south-1 --query 'TargetGroups[0].TargetGroupArn' --output text)
-aws elbv2 delete-target-group --target-group-arn $TG_ARN --region ap-south-1
+TG_ARN=$(aws elbv2 describe-target-groups --names nginx-service-tg-ip --region us-east-1 --query 'TargetGroups[0].TargetGroupArn' --output text)
+aws elbv2 delete-target-group --target-group-arn $TG_ARN --region us-east-1
 
 # Delete SSM parameters
-aws ssm delete-parameter --name "/prod/app/db_password" --region ap-south-1
-aws ssm delete-parameter --name "/prod/app/api_key" --region ap-south-1
+aws ssm delete-parameter --name "/prod/app/db_password" --region us-east-1
+aws ssm delete-parameter --name "/prod/app/api_key" --region us-east-1
 
 # Delete VPC and subnets (if created by Terraform)
-VPC_ID=$(aws ec2 describe-vpcs --filters "Name=tag:Name,Values=prod-ecs-vpc" --region ap-south-1 --query 'Vpcs[0].VpcId' --output text)
-aws ec2 delete-vpc --vpc-id $VPC_ID --region ap-south-1
+VPC_ID=$(aws ec2 describe-vpcs --filters "Name=tag:Name,Values=prod-ecs-vpc" --region us-east-1 --query 'Vpcs[0].VpcId' --output text)
+aws ec2 delete-vpc --vpc-id $VPC_ID --region us-east-1
 ```
 
 ## Architecture Decisions
