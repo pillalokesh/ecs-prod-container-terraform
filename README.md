@@ -17,10 +17,8 @@ Production-ready AWS ECS (EC2 launch type) infrastructure with zero-downtime dep
 
 - AWS Account with appropriate permissions
 - Terraform >= 1.5.0
-- Existing VPC with:
-  - Private subnets (for ECS instances)
-  - Public subnets (for ALB)
-  - NAT Gateway or VPC endpoints (for outbound connectivity)
+- GitHub repository (for CI/CD)
+- AWS OIDC provider configured for GitHub Actions
 - SSM Parameter Store secrets (pre-created)
 
 ## Quick Start
@@ -34,32 +32,18 @@ cd ecs-prod-container-terraform
 
 ### 2. Configure Variables
 
-Edit `terraform.tfvars` and update with your actual values. By default the
-module will create a new VPC in **ap-south-1** using the `terraform-aws-
-modules/vpc/aws` module; you only need to provide the CIDR/AZs or you can
-supply an existing VPC and subnet IDs instead.
+Edit `terraform.tfvars` and update with your actual values. The module will create a new VPC in **us-east-1** using the `terraform-aws-modules/vpc/aws` module.
 
-Example for creating a new VPC (two AZs is sufficient for HA):
+Example configuration:
 
 ```hcl
-vpc_name        = "prod-ecs-vpc"
-vpc_cidr        = "10.0.0.0/16"
-azs             = ["ap-south-1a", "ap-south-1b"]
-private_subnets = ["10.0.1.0/24", "10.0.2.0/24"]
-public_subnets  = ["10.0.101.0/24", "10.0.102.0/24"]
-``` 
-
-Or, to point at an existing network:
-
-```hcl
-# vpc_id             = "vpc-xxxxxxxxxxxxxxxxx"
-# private_subnet_ids = ["subnet-xxx", "subnet-yyy"]
-# public_subnet_ids  = ["subnet-zzz", "subnet-aaa"]
+vpc_name           = "prod-ecs-vpc"
+vpc_cidr           = "10.0.0.0/16"
+azs                = ["us-east-1a", "us-east-1b"]
+private_subnets    = ["10.0.1.0/24", "10.0.2.0/24"]
+public_subnets     = ["10.0.101.0/24", "10.0.102.0/24"]
+enable_nat_gateway = true
 ```
-
-By default the list of names used by the IAM and ECS modules is derived from
-`ssm_parameters` keys; if you prefer to supply a separate list you can set
-`ssm_secret_names` directly in your tfvars.
 
 ### 3. Create SSM Parameters (if not exists)
 
@@ -68,13 +52,13 @@ aws ssm put-parameter \
   --name "/prod/app/db_password" \
   --value "your-secret-value" \
   --type "SecureString" \
-  --region ap-south-1
+  --region us-east-1
 
 aws ssm put-parameter \
   --name "/prod/app/api_key" \
   --value "your-api-key" \
   --type "SecureString" \
-  --region ap-south-1
+  --region us-east-1
 ```
 
 ### 3.5. Optional Bastion & Secrets
@@ -100,11 +84,17 @@ ssm_parameters = {
 
 ### 4. Deploy Infrastructure
 
+**Local deployment:**
 ```bash
 terraform init
 terraform plan
 terraform apply
 ```
+
+**CI/CD deployment:**
+1. Configure AWS OIDC provider for GitHub Actions
+2. Add `AWS_ROLE_ARN` secret to GitHub repository
+3. Push to main branch - GitHub Actions will automatically deploy
 
 ### 5. Verify Deployment
 
@@ -156,12 +146,25 @@ aws ec2 delete-vpc --vpc-id $VPC_ID --region ap-south-1
 - **Deregistration Delay**: 30s (drain in-flight requests)
 - **Circuit Breaker**: Enabled (auto-rollback on failure)
 
-### Network Mode
+### CI/CD Integration
 
-- **awsvpc**: Each task gets its own ENI and IP address
-- **Target Group Type**: IP (required for awsvpc with ALB)
-- **Security Groups**: Task-level security (no dynamic port issues)
-- **Load Balancer Integration**: Automatic target registration by IP
+GitHub Actions workflow is configured at `.github/workflows/terraform.yml`:
+
+- **Pull Requests**: Runs `terraform plan` for review
+- **Push to main**: Runs `terraform plan` + `terraform apply`
+- **Authentication**: Uses AWS OIDC (no long-lived credentials)
+
+**Setup:**
+1. Create OIDC provider in AWS IAM
+2. Create IAM role with trust policy for GitHub
+3. Add `AWS_ROLE_ARN` to GitHub Secrets
+
+## Network Mode
+
+- **bridge**: Uses Docker bridge networking with dynamic port mapping
+- **Target Group Type**: instance (ALB routes to EC2 instances)
+- **Security Groups**: Instance-level security
+- **Load Balancer Integration**: Dynamic port mapping via ECS agent
 
 ### Secrets Management
 
@@ -186,14 +189,14 @@ aws ec2 delete-vpc --vpc-id $VPC_ID --region ap-south-1
 
 ## Assumptions
 
-### Existing Infrastructure
+### Infrastructure
 
-- **VPC**: Existing VPC with CIDR block and DNS enabled
+- **VPC**: New VPC created by Terraform with CIDR 10.0.0.0/16
 - **Subnets**: 
-  - Private subnets (2+ AZs) for ECS instances
-  - Public subnets (2+ AZs) for ALB
-- **NAT Gateway**: Configured in public subnets for private subnet egress
-- **Internet Gateway**: Attached to VPC for ALB ingress
+  - Private subnets (2 AZs) for ECS instances
+  - Public subnets (2 AZs) for ALB
+- **NAT Gateway**: Created by VPC module for private subnet egress
+- **Internet Gateway**: Created by VPC module for ALB ingress
 
 ### Networking
 
@@ -218,13 +221,16 @@ aws ec2 delete-vpc --vpc-id $VPC_ID --region ap-south-1
 ### Configuration
 
 - All infrastructure values defined in `terraform.tfvars`
-- Update VPC ID, subnet IDs, and other parameters before deployment
-- No default values in `variables.tf` - all values must be provided
+- VPC and networking created automatically
+- Region: us-east-1 (configurable)
 
 ## Project Structure
 
 ```
 .
+├── .github/
+│   └── workflows/
+│       └── terraform.yml       # GitHub Actions CI/CD
 ├── modules/
 │   ├── iam/                    # IAM roles and policies
 │   ├── security-groups/        # Security groups
@@ -232,19 +238,18 @@ aws ec2 delete-vpc --vpc-id $VPC_ID --region ap-south-1
 │   ├── asg/                    # Auto Scaling Group
 │   ├── ecs-cluster/            # ECS Cluster and Capacity Provider
 │   └── ecs-service/            # ECS Service and Task Definition
-├── main.tf                     # Root module calling all modules
+├── main.tf                     # Root module with VPC integration
+├── bastion.tf                  # Optional bastion host
 ├── variables.tf                # Input variable declarations
 ├── terraform.tfvars            # Variable values (edit this)
 ├── outputs.tf                  # Output values
 ├── versions.tf                 # Terraform and provider versions
-├── architecture.svg            # Architecture diagram
-├── DESIGN.md                   # Architecture design document
-├── ADDENDUM.md                 # Production stress test scenarios
 └── README.md                   # This file
 ```
 
 ## Key Resources Created
 
+- **VPC**: `prod-ecs-vpc` with NAT Gateway and Internet Gateway
 - **ECS Cluster**: `prod-ecs-cluster`
 - **ECS Service**: `nginx-service`
 - **ALB**: `nginx-service-alb`
@@ -321,14 +326,11 @@ aws ecs update-service \
 
 ## Shortcuts Taken
 
-1. **VPC**: Assumed existing VPC/subnets (would create in production)
-2. **TLS**: ALB listener uses HTTP (would use HTTPS with ACM certificate)
-3. **Monitoring**: Basic CloudWatch (would add custom dashboards, SNS alerts)
-4. **Networking**: Assumed NAT Gateway (would use VPC endpoints for cost savings)
-5. **Container**: Used nginx:latest (would use specific version tag)
-6. **IAM**: Simplified policies (would add more granular resource restrictions)
-7. **Backup**: No automated backups (would add EBS snapshots, config backups)
-8. **Configuration**: All values in terraform.tfvars (would use remote backend for team collaboration)
+1. **TLS**: ALB listener uses HTTP (would use HTTPS with ACM certificate)
+2. **Monitoring**: Basic CloudWatch (would add custom dashboards, SNS alerts)
+3. **Container**: Used nginx:latest (would use specific version tag)
+4. **IAM**: Simplified policies (would add more granular resource restrictions)
+5. **Backup**: No automated backups (would add EBS snapshots, config backups)
 
 ## What I Would Do Next (With More Time)
 
@@ -348,7 +350,7 @@ aws ecs update-service \
 - [ ] Implement automated runbooks (Systems Manager Automation)
 - [ ] Add X-Ray tracing for distributed tracing
 - [ ] Create Terraform modules for reusability
-- [ ] Add CI/CD pipeline (GitHub Actions, CodePipeline)
+- [ ] Add remote state backend (S3 + DynamoDB)
 
 ### Cost Optimization
 
@@ -381,22 +383,30 @@ aws ecs update-service \
 
 ## Cleanup
 
-To destroy all resources:
-
+**Terraform destroy:**
 ```bash
 terraform destroy
 ```
 
-**Note**: Ensure no production traffic before destroying resources.
+**Note**: Destroy takes ~3-4 minutes due to:
+- ALB connection draining (30s)
+- ASG instance termination (60-90s)
+- ECS service cleanup
+
+If ECS service gets stuck in DRAINING state:
+```bash
+aws ecs delete-service --cluster prod-ecs-cluster --service nginx-service --force
+terraform destroy
+```
 
 ## Support
 
 For questions or issues:
-1. Review DESIGN.md for architecture details
-2. Review ADDENDUM.md for failure scenarios
-3. Check AWS CloudWatch Logs for task/service errors
-4. Verify IAM permissions and security group rules
+1. Check GitHub Actions logs for deployment errors
+2. Check AWS CloudWatch Logs for task/service errors
+3. Verify IAM permissions and security group rules
+4. Review Terraform state for resource dependencies
 
 ## License
 
-This is a take-home assessment submission. Not licensed for production use without review.
+MIT License - Free to use and modify.

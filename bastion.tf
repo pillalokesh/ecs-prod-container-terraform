@@ -4,7 +4,7 @@ resource "aws_security_group" "bastion" {
   count = var.bastion_ami != "" || (var.bastion_ami == "" && length(data.aws_ami.ubuntu) > 0) ? 1 : 0
   name  = "${var.service_name}-bastion-sg"
   description = "Security group for bastion host"
-  vpc_id      = module.vpc.vpc_id
+  vpc_id      = local.vpc_id
 
   ingress {
     description = "SSH from administrative IP (or 0.0.0.0/0 for testing)"
@@ -78,7 +78,7 @@ resource "aws_instance" "bastion" {
   count                  = var.bastion_ami != "" || data.aws_ami.ubuntu[0].id != "" ? 1 : 0
   ami                    = var.bastion_ami != "" ? var.bastion_ami : data.aws_ami.ubuntu[0].id
   instance_type          = var.bastion_instance_type
-  subnet_id              = element(module.vpc.public_subnets, 0)
+  subnet_id              = element(local.public_subnet_ids, 0)
   vpc_security_group_ids = [aws_security_group.bastion[0].id]
   key_name               = var.bastion_key_name
   iam_instance_profile   = aws_iam_instance_profile.bastion[0].name
