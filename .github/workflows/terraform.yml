@@ -138,6 +138,13 @@ jobs:
       - name: Terraform Init
         run: terraform init -input=false -reconfigure
 
+      - name: Scale ECS Service to 0
+        run: |
+          aws ecs update-service \
+            --cluster prod-ecs-cluster \
+            --service nginx-service \
+            --desired-count 0
+
       - name: Terraform Destroy
         run: terraform destroy -auto-approve
         timeout-minutes: 15
