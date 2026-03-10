@@ -47,7 +47,7 @@ jobs:
           terraform_version: ${{ env.TF_VERSION }}
 
       - name: Terraform Init
-        run: terraform init
+        run: terraform init -input=false -reconfigure
 
       - name: Terraform Validate
         run: terraform validate
@@ -135,7 +135,7 @@ jobs:
           terraform_version: ${{ env.TF_VERSION }}
 
       - name: Terraform Init
-        run: terraform init -input=false -reconfigure
+        run: terraform init
 
       - name: Terraform Destroy
         run: terraform destroy -auto-approve
