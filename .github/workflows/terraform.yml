@@ -1,178 +1,144 @@
 name: Terraform ECS Deployment
 
 on:
-push:
-branches: [main]
-
-pull_request:
-branches: [main]
-
-workflow_dispatch:
-inputs:
-action:
-description: 'Terraform Action'
-required: true
-type: choice
-options:
-- plan
-- apply
-- destroy
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Terraform Action'
+        required: true
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
 
 env:
-AWS_REGION: us-east-1
-TF_VERSION: 1.5.0
+  AWS_REGION: us-east-1
+  TF_VERSION: 1.5.0
 
 jobs:
+  # Job 1: Terraform Plan
+  plan:
+    name: Terraform Plan
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'plan')
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-# ---------------------------
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
 
-# JOB 1 : TERRAFORM PLAN
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
 
-# ---------------------------
+      - name: Terraform Init
+        run: terraform init
 
-plan:
-name: Terraform Plan
-runs-on: ubuntu-latest
-if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'plan')
+      - name: Terraform Validate
+        run: terraform validate
 
-```
-permissions:
-  id-token: write
-  contents: read
-  pull-requests: write
+      - name: Terraform Plan
+        run: terraform plan -no-color
+        continue-on-error: true
 
-steps:
+      - name: Comment PR with Plan
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '✅ Terraform Plan completed! Review changes before merging.'
+            })
 
-  - name: Checkout code
-    uses: actions/checkout@v3
+  # Job 2: Terraform Apply
+  apply:
+    name: Terraform Apply
+    runs-on: ubuntu-latest
+    if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply')
+    permissions:
+      id-token: write
+      contents: read
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-  - name: Configure AWS credentials
-    uses: aws-actions/configure-aws-credentials@v2
-    with:
-      role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-      aws-region: ${{ env.AWS_REGION }}
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
 
-  - name: Setup Terraform
-    uses: hashicorp/setup-terraform@v2
-    with:
-      terraform_version: ${{ env.TF_VERSION }}
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
 
-  - name: Terraform Init
-    run: terraform init -input=false -reconfigure -migrate-state
+      - name: Terraform Init
+        run: terraform init
 
-  - name: Terraform Format Check
-    run: terraform fmt -check
+      - name: Terraform Apply
+        run: terraform apply -auto-approve
 
-  - name: Terraform Validate
-    run: terraform validate
+      - name: Get Outputs
+        id: outputs
+        run: |
+          echo "alb_dns=$(terraform output -raw alb_dns_name)" >> $GITHUB_OUTPUT
 
-  - name: Terraform Plan
-    run: terraform plan -no-color -input=false
-    continue-on-error: true
+      - name: Deployment Summary
+        run: |
+          echo "🚀 Deployment Successful!"
+          echo "ALB URL: http://${{ steps.outputs.outputs.alb_dns }}"
 
-  - name: Comment PR with Plan
-    if: github.event_name == 'pull_request'
-    uses: actions/github-script@v6
-    with:
-      script: |
-        github.rest.issues.createComment({
-          issue_number: context.issue.number,
-          owner: context.repo.owner,
-          repo: context.repo.repo,
-          body: '✅ Terraform Plan completed! Review changes before merging.'
-        })
-```
+  # Job 3: Terraform Destroy
+  destroy:
+    name: Terraform Destroy
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy'
+    environment:
+      name: production-destroy
+    permissions:
+      id-token: write
+      contents: read
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-# ---------------------------
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
 
-# JOB 2 : TERRAFORM APPLY
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
 
-# ---------------------------
+      - name: Terraform Init
+        run: terraform init -input=false -reconfigure
 
-apply:
-name: Terraform Apply
-runs-on: ubuntu-latest
-if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply')
+      - name: Terraform Destroy
+        run: terraform destroy -auto-approve
 
-```
-permissions:
-  id-token: write
-  contents: read
-
-steps:
-
-  - name: Checkout code
-    uses: actions/checkout@v3
-
-  - name: Configure AWS credentials
-    uses: aws-actions/configure-aws-credentials@v2
-    with:
-      role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-      aws-region: ${{ env.AWS_REGION }}
-
-  - name: Setup Terraform
-    uses: hashicorp/setup-terraform@v2
-    with:
-      terraform_version: ${{ env.TF_VERSION }}
-
-  - name: Terraform Init
-    run: terraform init -input=false -reconfigure -migrate-state
-
-  - name: Terraform Apply
-    run: terraform apply -auto-approve -input=false
-
-  - name: Get Outputs
-    id: outputs
-    run: |
-      echo "alb_dns=$(terraform output -raw alb_dns_name)" >> $GITHUB_OUTPUT
-
-  - name: Deployment Summary
-    run: |
-      echo "🚀 Deployment Successful!"
-      echo "ALB URL: http://${{ steps.outputs.outputs.alb_dns }}"
-```
-
-# ---------------------------
-
-# JOB 3 : TERRAFORM DESTROY
-
-# ---------------------------
-
-destroy:
-name: Terraform Destroy
-runs-on: ubuntu-latest
-if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy'
-
-```
-environment:
-  name: production-destroy
-
-permissions:
-  id-token: write
-  contents: read
-
-steps:
-
-  - name: Checkout code
-    uses: actions/checkout@v3
-
-  - name: Configure AWS credentials
-    uses: aws-actions/configure-aws-credentials@v2
-    with:
-      role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-      aws-region: ${{ env.AWS_REGION }}
-
-  - name: Setup Terraform
-    uses: hashicorp/setup-terraform@v2
-    with:
-      terraform_version: ${{ env.TF_VERSION }}
-
-  - name: Terraform Init
-    run: terraform init -input=false -reconfigure -migrate-state
-
-  - name: Terraform Destroy
-    run: terraform destroy -auto-approve -input=false
-
-  - name: Destroy Summary
-    run: echo "🗑️ Infrastructure destroyed successfully!"
-```
+      - name: Destroy Summary
+        run: echo "🗑️ Infrastructure destroyed successfully!"
