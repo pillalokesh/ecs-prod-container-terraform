@@ -140,6 +140,7 @@ jobs:
 
       - name: Terraform Destroy
         run: terraform destroy -auto-approve
+        timeout-minutes: 15
 
       - name: Destroy Summary
         run: echo "🗑️ Infrastructure destroyed successfully!"
