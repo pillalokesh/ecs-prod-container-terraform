@@ -93,7 +93,7 @@ jobs:
           terraform_version: ${{ env.TF_VERSION }}
 
       - name: Terraform Init
-        run: terraform init
+        run: terraform init -input=false -reconfigure
 
       - name: Terraform Apply
         run: terraform apply -auto-approve
@@ -135,7 +135,7 @@ jobs:
           terraform_version: ${{ env.TF_VERSION }}
 
       - name: Terraform Init
-        run: terraform init
+        run: terraform init -input=false -reconfigure
 
       - name: Terraform Destroy
         run: terraform destroy -auto-approve
