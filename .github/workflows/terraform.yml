@@ -91,6 +91,7 @@ jobs:
         uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
 
       - name: Terraform Init
         run: terraform init -input=false -reconfigure
@@ -101,7 +102,7 @@ jobs:
       - name: Get Outputs
         id: outputs
         run: |
-          ALB_DNS=$(terraform output -raw alb_dns_name | tr -d '\n')
+          ALB_DNS=$(terraform output -raw alb_dns_name)
           echo "alb_dns=$ALB_DNS" >> $GITHUB_OUTPUT
 
       - name: Deployment Summary
