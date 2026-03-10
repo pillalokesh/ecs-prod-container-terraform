@@ -99,9 +99,10 @@ jobs:
         run: terraform apply -auto-approve
 
       - name: Get Outputs
-        id: outputs
-        run: |
-          echo "alb_dns=$(terraform output -raw alb_dns_name)" >> $GITHUB_OUTPUT
+  id: outputs
+  run: |
+    ALB_DNS=$(terraform output -raw alb_dns_name)
+    echo "alb_dns=$ALB_DNS" >> $GITHUB_OUTPUT
 
       - name: Deployment Summary
         run: |
