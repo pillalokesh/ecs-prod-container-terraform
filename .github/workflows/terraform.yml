@@ -99,15 +99,15 @@ jobs:
         run: terraform apply -auto-approve
 
       - name: Get Outputs
-  id: outputs
-  run: |
-    ALB_DNS=$(terraform output -raw alb_dns_name)
-    echo "alb_dns=$ALB_DNS" >> $GITHUB_OUTPUT
+        id: outputs
+        run: |
+          ALB_DNS=$(terraform output -raw alb_dns_name | tr -d '\n')
+          echo "alb_dns=$ALB_DNS" >> $GITHUB_OUTPUT
 
       - name: Deployment Summary
         run: |
           echo "🚀 Deployment Successful!"
-          echo "ALB URL: http://${{ steps.outputs.outputs.alb_dns }}"
+          echo "ALB URL: http://${{ steps.outputs.alb_dns }}"
 
   # Job 3: Terraform Destroy
   destroy:
